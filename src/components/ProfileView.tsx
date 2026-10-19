@@ -52,7 +52,7 @@ export const ProfileView: FC<ProfileViewProps> = ({
                     </div>
                     <p className="profile-email-text">{user?.email || "demo@matecode.dev"}</p>
                     <span className="profile-uid-text">
-                        ID: <code>{user?.uid || "local-demo-123"}</code> · Modo Local Activo
+                        ID: <code>{user?.uid || "local-demo-123"}</code> · Usuario activo
                     </span>
                 </div>
             </div>

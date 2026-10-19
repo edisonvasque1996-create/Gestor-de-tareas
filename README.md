@@ -3,57 +3,73 @@
 
 Una aplicación web SPA (*Single Page Application*) moderna, robusta y escalable construida para **MateCode**, diseñada para que empleados y equipos gestionen sus tareas diarias de forma organizada, persistente y accesible desde cualquier dispositivo (Desktop, Tablet y Móvil).
 
+- 🔗 **Despliegue en producción:** [https://gestor-de-tareas-fawn.vercel.app/](https://gestor-de-tareas-fawn.vercel.app/)
+
 ---
 
 ## 🚀 1. Stack Tecnológico
 
 | Capa | Tecnología | Propósito |
 |---|---|---|
-| **Frontend** | React 19 + TypeScript | Interfaz reactiva con tipado estricto y detección temprana de errores |
+| **Frontend** | React 19 + TypeScript | Interfaz reactiva con tipado estricto, hooks modernos y arquitectura modular |
 | **Tooling & Bundler** | Vite 8 + Vitest | Entorno de desarrollo ultra rápido y suite de pruebas moderna |
-| **BaaS (Backend as a Service)** | Firebase Auth + Cloud Firestore | Autenticación de usuarios y persistencia de datos en tiempo real en la nube |
+| **BaaS (Backend as a Service)** | Firebase Auth + Cloud Firestore | Autenticación de usuarios (Email y Google OAuth) y base de datos NoSQL en tiempo real |
 | **Drag & Drop** | `@dnd-kit` (Core + Sortable) | Reordenamiento fluido y accesible de tareas |
 | **Notificaciones por Email** | AWS SES (Simple Email Service) | Envío de reportes y resúmenes ejecutivos vía serverless functions |
-| **Serverless Backend** | Vercel Serverless Functions (`/api`) | Endpoint seguro para invocar AWS SES sin exponer secretos en el cliente |
-| **Testing** | Vitest + React Testing Library + JSDOM | Pruebas unitarias de servicios y pruebas de componentes de UI |
-| **Despliegue** | Vercel | Hosting SPA optimizado con CI/CD automático |
+| **Serverless Backend** | Vercel Serverless Functions (`/api`) | Endpoint seguro para invocar AWS SES sin exponer credenciales en el cliente |
+| **Testing** | Vitest + React Testing Library + JSDOM | Pruebas unitarias de servicios y pruebas de componentes de UI (15 tests) |
+| **Despliegue** | Vercel | Hosting SPA optimizado con CI/CD automático y políticas de seguridad COOP |
 
 ---
 
 ## 🏛️ 2. Arquitectura del Proyecto
 
-El código está estructurado siguiendo los principios de **separación de responsabilidades** y **arquitectura por capas**:
+El proyecto está estructurado siguiendo principios de **separación de responsabilidades** y **arquitectura por capas**:
 
 ```text
-2.0 Borrador de P.I Modulo 4/
+2.0 Gestor de tareas - PÍ/
 ├── api/                        # Vercel Serverless Functions
 │   └── send-email.ts           # Endpoint seguro de envío de emails con AWS SES
 ├── functions/                  # Re-export de serverless functions (compatibilidad)
 │   └── send-email.ts
-├── public/                     # Assets públicos estáticos
+├── public/                     # Assets públicos estáticos (favicon.svg)
 ├── src/
-│   ├── assets/                 # Iconos e imágenes
-│   ├── components/             # Componentes de UI reutilizables
-│   │   ├── common/             # Componentes transversales (ErrorBoundary)
-│   │   ├── EditTaskModal.tsx   # Modal de edición completa de tareas
-│   │   ├── TodoForm.tsx        # Formulario de alta con validación y UX expandible
-│   │   ├── TodoItem.tsx        # Fila/tarjeta de tarea con chips, drag handle y acciones
-│   │   └── TodoList.tsx        # Listado con búsqueda, filtros múltiples y DndContext
-│   ├── hooks/                  # Custom hooks (useAuth con manejo de errores bilingüe)
+│   ├── components/             # Componentes de UI modulares y reutilizables
+│   │   ├── common/             # Componentes transversales
+│   │   │   └── ErrorBoundary.tsx # Captura y contingencia ante errores no controlados
+│   │   ├── Badges.tsx          # Etiquetas visuales de estado, prioridad y categoría
+│   │   ├── BottomNavigation.tsx# Barra de navegación móvil táctil (Mobile First)
+│   │   ├── CalendarPanel.tsx   # Panel interactivo de calendario mensual con filtros
+│   │   ├── ConfirmDialog.tsx   # Modal de confirmación para acciones destructivas
+│   │   ├── EditTaskModal.tsx   # Modal de edición completa de tareas existentes
+│   │   ├── ProfileView.tsx     # Vista de perfil de usuario con estadísticas y métricas
+│   │   ├── Sidebar.tsx         # Menú lateral responsive para escritorio y tablets
+│   │   ├── TaskDetailsModal.tsx# Modal de inspección de detalles de una tarea
+│   │   ├── TaskFilters.tsx     # Barra de filtros (estados, categorías, prioridades y búsqueda)
+│   │   ├── TaskFormModal.tsx   # Modal para creación de tareas en vista móvil/calendario
+│   │   ├── TaskHeader.tsx      # Cabecera con fecha, título del panel y buscador
+│   │   ├── TaskSummary.tsx     # Tarjetas de métricas y KPIs de productividad
+│   │   ├── Toast.tsx           # Notificaciones emergentes temporales de feedback
+│   │   ├── TodoForm.tsx        # Formulario principal de alta de tareas
+│   │   ├── TodoItem.tsx        # Fila/tarjeta de tarea con drag handle y acciones
+│   │   └── TodoList.tsx        # Listado ordenable con drag and drop (@dnd-kit)
+│   ├── hooks/                  # Custom hooks
+│   │   └── useAuth.tsx         # Contexto de autenticación, sesión y manejo de errores
 │   ├── pages/                  # Vistas principales de la SPA
-│   │   ├── AuthPage.tsx        # Login / Registro con tabs y soporte Google
+│   │   ├── AuthPage.tsx        # Login / Registro con pestañas y botón Google OAuth
 │   │   ├── NotFoundPage.tsx    # Vista 404 personalizada
-│   │   └── TasksPage.tsx       # Dashboard principal con métricas KPI y CRUD
+│   │   └── TasksPage.tsx       # Dashboard principal con orquestación de vistas
 │   ├── routes/                 # Enrutamiento protegido
-│   │   └── ProtectedRoute.tsx  # Guard de rutas privadas basado en sesión de usuario
+│   │   └── ProtectedRoute.tsx  # Guard de rutas privadas basado en sesión activa
 │   ├── services/               # Integración con servicios externos
-│   │   ├── emailService.ts     # Cliente para consumir /api/send-email
-│   │   ├── firebase.ts         # Inicialización resiliente de Firebase (Auth + Firestore)
-│   │   └── taskService.ts      # CRUD completo con Firestore y respaldo local
+│   │   ├── emailService.ts     # Cliente para consumir /api/send-email con fallback
+│   │   ├── firebase.ts         # Inicialización singleton de Firebase (Auth + Firestore)
+│   │   └── taskService.ts      # Operaciones CRUD en Firestore con tiempo real (onSnapshot)
 │   ├── types/                  # Definiciones de TypeScript e interfaces (Task, TaskInput, etc.)
-│   ├── App.tsx                 # Configuración del Router y ErrorBoundary
-│   ├── index.css               # Design system profesional Vanilla CSS (Mobile First)
-│   └── main.tsx                # Punto de entrada de React
+│   │   └── task.ts
+│   ├── App.tsx                 # Enrutador principal, ErrorBoundary y AuthProvider
+│   ├── index.css               # Design system completo Vanilla CSS (Mobile First)
+│   └── main.tsx                # Punto de entrada de la aplicación React
 ├── tests/                      # Suite de pruebas automatizadas
 │   ├── components/             # Pruebas de integración de componentes
 │   │   ├── TodoForm.test.tsx
@@ -61,12 +77,12 @@ El código está estructurado siguiendo los principios de **separación de respo
 │   ├── unit/                   # Pruebas unitarias
 │   │   ├── emailTemplate.test.ts
 │   │   └── taskService.test.ts
-│   └── setup.ts                # Configuración global de Vitest y Jest-DOM matchers
-├── .env.example                # Plantilla de variables de entorno
-├── .gitignore                  # Exclusión estricta de .env y node_modules
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
+│   └── setup.ts                # Configuración global de Vitest y matchers de Jest-DOM
+├── .env.example                # Plantilla de variables de entorno requeridas
+├── firestore.rules             # Reglas de seguridad declarativas para Cloud Firestore
+├── vercel.json                 # Configuración de rewrites SPA y cabeceras COOP para Vercel
+├── vite.config.ts              # Configuración de bundler Vite, cabeceras locales y Vitest
+└── package.json
 ```
 
 ---
