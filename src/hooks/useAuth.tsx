@@ -61,6 +61,8 @@ export const getFriendlyAuthError = (errorCodeOrMessage: string): string => {
         return "Fallo de conexión a la red. Por favor, verifica tu conexión a internet.";
     if (errorCodeOrMessage.includes("auth/too-many-requests"))
         return "Demasiados intentos fallidos. Por seguridad, espera unos momentos antes de reintentar.";
+    if (errorCodeOrMessage.includes("auth/unauthorized-domain"))
+        return "Dominio no autorizado: este dominio no está configurado en Firebase Authentication (Authentication > Configuración > Dominios autorizados).";
     if (errorCodeOrMessage.includes("auth/configuration-not-found") ||
         errorCodeOrMessage.includes("auth/invalid-api-key"))
         return "Configuración de Firebase no encontrada. Verifica las variables de entorno VITE_FIREBASE_*.";

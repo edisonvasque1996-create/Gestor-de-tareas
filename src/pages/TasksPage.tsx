@@ -110,8 +110,10 @@ export const TasksPage: FC = () => {
     const handleAddTask = async (taskData: TaskInput) => {
         if (!user) return;
         try {
-            const newTask = await createTask(user.uid, taskData, tasks.length);
-            setTasks((prev) => [...prev, newTask]);
+            await createTask(user.uid, taskData, tasks.length);
+            // Nota: no hacemos setTasks([...prev, newTask]) manualmente aquí,
+            // ya que Firestore onSnapshot (subscribeToUserTasks) sincroniza y actualiza
+            // el estado en tiempo real automáticamente, evitando tareas duplicadas.
             showToast("✓ Tarea creada exitosamente.", "success");
         } catch (err: any) {
             showToast(err.message || "Error al crear la tarea.", "error");

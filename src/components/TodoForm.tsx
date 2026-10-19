@@ -27,6 +27,7 @@ export const TodoForm: FC<TodoFormProps> = ({
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
+        if (loading) return;
         const cleanTitle = title.trim();
 
         if (!cleanTitle) {
