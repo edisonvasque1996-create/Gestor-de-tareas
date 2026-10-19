@@ -1,18 +1,29 @@
 import { useState, type FC, type FormEvent } from "react";
-import type { PriorityLevel, TaskInput } from "../types/task";
+import type { PriorityLevel, TaskCategory, TaskInput, TaskState } from "../types/task";
 
 interface TodoFormProps {
     onAddTask: (task: TaskInput) => Promise<void>;
+    initialDate?: string;
+    onCancel?: () => void;
+    isModalMode?: boolean;
 }
 
-export const TodoForm: FC<TodoFormProps> = ({ onAddTask }) => {
+export const TodoForm: FC<TodoFormProps> = ({
+    onAddTask,
+    initialDate = "",
+    onCancel,
+    isModalMode = false,
+}) => {
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
     const [priority, setPriority] = useState<PriorityLevel>("media");
-    const [dueDate, setDueDate] = useState("");
+    const [category, setCategory] = useState<TaskCategory>("trabajo");
+    const [status, setStatus] = useState<TaskState>("pendiente");
+    const [dueDate, setDueDate] = useState(initialDate);
+    const [dueTime, setDueTime] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(isModalMode);
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
@@ -35,15 +46,23 @@ export const TodoForm: FC<TodoFormProps> = ({ onAddTask }) => {
                 title: cleanTitle,
                 description: description.trim(),
                 priority,
+                category,
+                status,
                 dueDate,
+                dueTime,
             });
 
             // Limpieza
             setTitle("");
             setDescription("");
             setPriority("media");
-            setDueDate("");
-            setIsExpanded(false);
+            setCategory("trabajo");
+            setStatus("pendiente");
+            setDueDate(initialDate);
+            setDueTime("");
+            if (!isModalMode) {
+                setIsExpanded(false);
+            }
         } catch (err: any) {
             setError(err.message || "No se pudo guardar la tarea. Intenta nuevamente.");
         } finally {
@@ -52,16 +71,35 @@ export const TodoForm: FC<TodoFormProps> = ({ onAddTask }) => {
     };
 
     return (
-        <form onSubmit={handleSubmit} className="task-form-card" aria-label="Crear nueva tarea">
+        <form
+            onSubmit={handleSubmit}
+            className={`task-form-card ${isModalMode ? "form-in-modal" : ""}`}
+            role="form"
+            aria-label="Crear nueva tarea"
+        >
             <div className="form-header">
-                <h3 className="form-title">⚡ Nueva Tarea Estratégica</h3>
-                <span className="form-subtitle">Planifica, prioriza y ejecuta con claridad</span>
+                <div>
+                    <h3 className="form-title">⚡ Nueva Tarea Estratégica</h3>
+                    <span className="form-subtitle">Planifica, prioriza y ejecuta con claridad</span>
+                </div>
+                {onCancel && isModalMode && (
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="modal-close-btn"
+                        aria-label="Cerrar formulario"
+                    >
+                        ✕
+                    </button>
+                )}
             </div>
 
             {error && (
                 <div className="alert-banner alert-error" role="alert">
                     <span>⚠️ {error}</span>
-                    <button type="button" onClick={() => setError("")} className="alert-close">✕</button>
+                    <button type="button" onClick={() => setError("")} className="alert-close">
+                        ✕
+                    </button>
                 </div>
             )}
 
@@ -79,11 +117,12 @@ export const TodoForm: FC<TodoFormProps> = ({ onAddTask }) => {
                         onFocus={() => setIsExpanded(true)}
                         required
                         className="text-input"
+                        autoFocus={isModalMode}
                     />
                 </div>
 
-                {/* Campos expandibles para una experiencia ágil */}
-                {(isExpanded || description || dueDate || priority !== "media") && (
+                {/* Campos expandibles / siempre visibles en modal */}
+                {(isExpanded || description || dueDate || priority !== "media" || category !== "trabajo") && (
                     <>
                         <div className="input-group">
                             <label htmlFor="task-desc-input" className="input-label">
@@ -100,6 +139,25 @@ export const TodoForm: FC<TodoFormProps> = ({ onAddTask }) => {
                         </div>
 
                         <div className="form-row-2col">
+                            {/* Categoría */}
+                            <div className="input-group">
+                                <label htmlFor="task-category-select" className="input-label">
+                                    Categoría
+                                </label>
+                                <select
+                                    id="task-category-select"
+                                    value={category}
+                                    onChange={(e) => setCategory(e.target.value as TaskCategory)}
+                                    className="select-input"
+                                >
+                                    <option value="trabajo">💼 Trabajo</option>
+                                    <option value="personal">🌱 Personal</option>
+                                    <option value="estudios">📚 Estudios</option>
+                                    <option value="casa">🏠 Casa</option>
+                                </select>
+                            </div>
+
+                            {/* Prioridad */}
                             <div className="input-group">
                                 <label htmlFor="task-priority-select" className="input-label">
                                     Nivel de Prioridad
@@ -115,7 +173,27 @@ export const TodoForm: FC<TodoFormProps> = ({ onAddTask }) => {
                                     <option value="alta">🔴 Alta prioridad</option>
                                 </select>
                             </div>
+                        </div>
 
+                        <div className="form-row-2col">
+                            {/* Estado inicial */}
+                            <div className="input-group">
+                                <label htmlFor="task-status-select" className="input-label">
+                                    Estado
+                                </label>
+                                <select
+                                    id="task-status-select"
+                                    value={status}
+                                    onChange={(e) => setStatus(e.target.value as TaskState)}
+                                    className="select-input"
+                                >
+                                    <option value="pendiente">⚪ Pendiente</option>
+                                    <option value="en_progreso">🔵 En progreso</option>
+                                    <option value="completada">🟢 Completada</option>
+                                </select>
+                            </div>
+
+                            {/* Fecha Límite */}
                             <div className="input-group">
                                 <label htmlFor="task-date-input" className="input-label">
                                     Fecha límite de entrega
@@ -129,25 +207,51 @@ export const TodoForm: FC<TodoFormProps> = ({ onAddTask }) => {
                                 />
                             </div>
                         </div>
+
+                        {/* Hora opcional */}
+                        <div className="input-group">
+                            <label htmlFor="task-time-input" className="input-label">
+                                Hora límite (opcional)
+                            </label>
+                            <input
+                                id="task-time-input"
+                                type="time"
+                                value={dueTime}
+                                onChange={(e) => setDueTime(e.target.value)}
+                                className="text-input"
+                            />
+                        </div>
                     </>
                 )}
 
                 <div className="form-submit-row">
-                    {isExpanded && (
+                    {onCancel && isModalMode ? (
                         <button
                             type="button"
-                            onClick={() => setIsExpanded(false)}
+                            onClick={onCancel}
+                            disabled={loading}
                             className="btn-text"
                         >
-                            Menos opciones
+                            Cancelar
                         </button>
+                    ) : (
+                        isExpanded && (
+                            <button
+                                type="button"
+                                onClick={() => setIsExpanded(false)}
+                                className="btn-text"
+                            >
+                                Menos opciones
+                            </button>
+                        )
                     )}
+
                     <button
                         type="submit"
                         disabled={loading || !title.trim()}
                         className="btn-primary"
                     >
-                        {loading ? "Guardando en la nube..." : "＋ Agregar Tarea"}
+                        {loading ? "Guardando..." : "＋ Agregar Tarea"}
                     </button>
                 </div>
             </div>

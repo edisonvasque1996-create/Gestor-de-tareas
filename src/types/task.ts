@@ -1,6 +1,14 @@
 export type PriorityLevel = 'baja' | 'media' | 'alta';
 
+export type TaskCategory = 'trabajo' | 'personal' | 'estudios' | 'casa';
+
+export type TaskState = 'pendiente' | 'en_progreso' | 'completada';
+
 export type TaskStatus = 'todas' | 'pendientes' | 'completadas';
+
+export type TaskFilterStatus = 'todas' | 'pendientes' | 'en_progreso' | 'completadas' | 'hoy' | 'proximas' | 'vencidas';
+
+export type SortOption = 'dueDate' | 'priority' | 'createdAt' | 'title';
 
 export interface Task {
     id: string;               // Identificador único (Firestore ID o UUID local)
@@ -13,6 +21,9 @@ export interface Task {
     order: number;            // Índice numérico para drag & drop
     createdAt: number;        // Timestamp de creación
     updatedAt?: number;       // Timestamp de última actualización
+    category?: TaskCategory;  // Categoría: trabajo, personal, estudios, casa
+    status?: TaskState;       // Estado visual: pendiente, en_progreso, completada
+    dueTime?: string;         // Hora opcional (HH:mm)
 }
 
 export interface TaskInput {
@@ -20,6 +31,9 @@ export interface TaskInput {
     description: string;
     priority: PriorityLevel;
     dueDate: string;
+    category?: TaskCategory;
+    status?: TaskState;
+    dueTime?: string;
 }
 
 export interface TaskUpdateInput {
@@ -29,12 +43,16 @@ export interface TaskUpdateInput {
     priority?: PriorityLevel;
     dueDate?: string;
     order?: number;
+    category?: TaskCategory;
+    status?: TaskState;
+    dueTime?: string;
 }
 
 export interface TaskSummary {
     total: number;
     completed: number;
     pending: number;
+    inProgress?: number;
     highPriority: number;
     overdue: number;
 }

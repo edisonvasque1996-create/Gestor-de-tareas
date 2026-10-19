@@ -1,5 +1,5 @@
 import { useState, type FC, type FormEvent, useEffect } from "react";
-import type { PriorityLevel, Task, TaskUpdateInput } from "../types/task";
+import type { PriorityLevel, Task, TaskCategory, TaskState, TaskUpdateInput } from "../types/task";
 
 interface EditTaskModalProps {
     task: Task | null;
@@ -12,7 +12,10 @@ export const EditTaskModal: FC<EditTaskModalProps> = ({ task, isOpen, onClose, o
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
     const [priority, setPriority] = useState<PriorityLevel>("media");
+    const [category, setCategory] = useState<TaskCategory>("trabajo");
+    const [status, setStatus] = useState<TaskState>("pendiente");
     const [dueDate, setDueDate] = useState("");
+    const [dueTime, setDueTime] = useState("");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
 
@@ -21,16 +24,31 @@ export const EditTaskModal: FC<EditTaskModalProps> = ({ task, isOpen, onClose, o
             setTitle(task.title);
             setDescription(task.description || "");
             setPriority(task.priority || "media");
+            setCategory(task.category || "trabajo");
+            setStatus(task.status || (task.completed ? "completada" : "pendiente"));
             setDueDate(task.dueDate || "");
+            setDueTime(task.dueTime || "");
             setError("");
         }
     }, [task]);
+
+    // Cerrar con Escape
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && isOpen) {
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isOpen, onClose]);
 
     if (!isOpen || !task) return null;
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        if (!title.trim()) {
+        const cleanTitle = title.trim();
+        if (!cleanTitle) {
             setError("El título de la tarea es obligatorio.");
             return;
         }
@@ -39,10 +57,14 @@ export const EditTaskModal: FC<EditTaskModalProps> = ({ task, isOpen, onClose, o
             setSaving(true);
             setError("");
             await onSave(task.id, {
-                title: title.trim(),
+                title: cleanTitle,
                 description: description.trim(),
                 priority,
+                category,
+                status,
+                completed: status === "completada",
                 dueDate,
+                dueTime,
             });
             onClose();
         } catch (err: any) {
@@ -55,207 +77,167 @@ export const EditTaskModal: FC<EditTaskModalProps> = ({ task, isOpen, onClose, o
     return (
         <div
             className="modal-backdrop"
-            style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: "rgba(15, 23, 42, 0.6)",
-                backdropFilter: "blur(4px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                zIndex: 1000,
-                padding: "16px",
-            }}
             onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-modal-title"
         >
             <div
-                className="modal-card"
-                style={{
-                    backgroundColor: "#ffffff",
-                    borderRadius: "16px",
-                    width: "100%",
-                    maxWidth: "500px",
-                    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-                    overflow: "hidden",
-                    border: "1px solid #e2e8f0",
-                }}
+                className="modal-card modal-sheet-mobile"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div style={{
-                    padding: "20px 24px",
-                    borderBottom: "1px solid #f1f5f9",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                }}>
-                    <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "700", color: "#0f172a" }}>
-                        ✏️ Editar Tarea Estratégica
-                    </h3>
+                {/* Mobile Drag Indicator */}
+                <div className="sheet-drag-handle" aria-hidden="true" />
+
+                <div className="modal-header">
+                    <div className="modal-header-title-box">
+                        <span className="modal-icon">✏️</span>
+                        <h3 id="edit-modal-title" className="modal-title">
+                            Editar Tarea
+                        </h3>
+                    </div>
                     <button
+                        type="button"
                         onClick={onClose}
-                        style={{
-                            background: "transparent",
-                            border: "none",
-                            fontSize: "20px",
-                            color: "#94a3b8",
-                            cursor: "pointer",
-                            padding: "4px 8px",
-                            borderRadius: "6px",
-                        }}
+                        className="modal-close-btn"
+                        aria-label="Cerrar modal de edición"
                     >
                         ✕
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} style={{ padding: "24px" }}>
+                <form onSubmit={handleSubmit} className="modal-body-form">
                     {error && (
-                        <div style={{
-                            padding: "10px 14px",
-                            backgroundColor: "#fef2f2",
-                            border: "1px solid #fee2e2",
-                            color: "#b91c1c",
-                            borderRadius: "8px",
-                            fontSize: "13px",
-                            marginBottom: "16px",
-                        }}>
-                            {error}
+                        <div className="alert-banner alert-error" role="alert">
+                            <span>⚠️ {error}</span>
                         </div>
                     )}
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                        <div>
-                            <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                                Título de la tarea *
+                    <div className="input-group">
+                        <label htmlFor="edit-task-title" className="input-label">
+                            Título de la tarea <span className="required">*</span>
+                        </label>
+                        <input
+                            id="edit-task-title"
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            placeholder="Título claro y accionable"
+                            required
+                            className="text-input"
+                            autoFocus
+                        />
+                    </div>
+
+                    <div className="input-group">
+                        <label htmlFor="edit-task-desc" className="input-label">
+                            Descripción y notas
+                        </label>
+                        <textarea
+                            id="edit-task-desc"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            placeholder="Detalles, notas, objetivos o enlaces relevantes..."
+                            rows={3}
+                            className="textarea-input"
+                        />
+                    </div>
+
+                    <div className="form-row-2col">
+                        <div className="input-group">
+                            <label htmlFor="edit-task-category" className="input-label">
+                                Categoría
+                            </label>
+                            <select
+                                id="edit-task-category"
+                                value={category}
+                                onChange={(e) => setCategory(e.target.value as TaskCategory)}
+                                className="select-input"
+                            >
+                                <option value="trabajo">💼 Trabajo</option>
+                                <option value="personal">🌱 Personal</option>
+                                <option value="estudios">📚 Estudios</option>
+                                <option value="casa">🏠 Casa</option>
+                            </select>
+                        </div>
+
+                        <div className="input-group">
+                            <label htmlFor="edit-task-priority" className="input-label">
+                                Prioridad
+                            </label>
+                            <select
+                                id="edit-task-priority"
+                                value={priority}
+                                onChange={(e) => setPriority(e.target.value as PriorityLevel)}
+                                className="select-input"
+                            >
+                                <option value="baja">🟢 Baja</option>
+                                <option value="media">🟡 Media</option>
+                                <option value="alta">🔴 Alta</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="form-row-2col">
+                        <div className="input-group">
+                            <label htmlFor="edit-task-status" className="input-label">
+                                Estado de la tarea
+                            </label>
+                            <select
+                                id="edit-task-status"
+                                value={status}
+                                onChange={(e) => setStatus(e.target.value as TaskState)}
+                                className="select-input"
+                            >
+                                <option value="pendiente">⚪ Pendiente</option>
+                                <option value="en_progreso">🔵 En progreso</option>
+                                <option value="completada">🟢 Completada</option>
+                            </select>
+                        </div>
+
+                        <div className="input-group">
+                            <label htmlFor="edit-task-duedate" className="input-label">
+                                Fecha de vencimiento
                             </label>
                             <input
-                                type="text"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                                placeholder="Título claro y accionable"
-                                required
-                                style={{
-                                    width: "100%",
-                                    boxSizing: "border-box",
-                                    padding: "10px 14px",
-                                    borderRadius: "8px",
-                                    border: "1px solid #cbd5e1",
-                                    fontSize: "14px",
-                                }}
+                                id="edit-task-duedate"
+                                type="date"
+                                value={dueDate}
+                                onChange={(e) => setDueDate(e.target.value)}
+                                className="text-input"
                             />
                         </div>
+                    </div>
 
-                        <div>
-                            <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                                Descripción
-                            </label>
-                            <textarea
-                                value={description}
-                                onChange={(e) => setDescription(e.target.value)}
-                                placeholder="Detalles, objetivos o notas relevantes..."
-                                rows={3}
-                                style={{
-                                    width: "100%",
-                                    boxSizing: "border-box",
-                                    padding: "10px 14px",
-                                    borderRadius: "8px",
-                                    border: "1px solid #cbd5e1",
-                                    fontSize: "14px",
-                                    fontFamily: "inherit",
-                                    resize: "vertical",
-                                }}
-                            />
-                        </div>
+                    <div className="input-group">
+                        <label htmlFor="edit-task-duetime" className="input-label">
+                            Hora límite (opcional)
+                        </label>
+                        <input
+                            id="edit-task-duetime"
+                            type="time"
+                            value={dueTime}
+                            onChange={(e) => setDueTime(e.target.value)}
+                            className="text-input"
+                        />
+                    </div>
 
-                        <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-                            <div style={{ flex: 1, minWidth: "160px" }}>
-                                <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                                    Prioridad
-                                </label>
-                                <select
-                                    value={priority}
-                                    onChange={(e) => setPriority(e.target.value as PriorityLevel)}
-                                    style={{
-                                        width: "100%",
-                                        boxSizing: "border-box",
-                                        padding: "10px 14px",
-                                        borderRadius: "8px",
-                                        border: "1px solid #cbd5e1",
-                                        fontSize: "14px",
-                                        backgroundColor: "#fff",
-                                    }}
-                                >
-                                    <option value="baja">🟢 Baja</option>
-                                    <option value="media">🟡 Media</option>
-                                    <option value="alta">🔴 Alta</option>
-                                </select>
-                            </div>
-
-                            <div style={{ flex: 1, minWidth: "160px" }}>
-                                <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
-                                    Fecha de vencimiento
-                                </label>
-                                <input
-                                    type="date"
-                                    value={dueDate}
-                                    onChange={(e) => setDueDate(e.target.value)}
-                                    style={{
-                                        width: "100%",
-                                        boxSizing: "border-box",
-                                        padding: "10px 14px",
-                                        borderRadius: "8px",
-                                        border: "1px solid #cbd5e1",
-                                        fontSize: "14px",
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        <div style={{
-                            display: "flex",
-                            justifyContent: "flex-end",
-                            gap: "12px",
-                            marginTop: "8px",
-                            paddingTop: "16px",
-                            borderTop: "1px solid #f1f5f9",
-                        }}>
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                disabled={saving}
-                                style={{
-                                    padding: "9px 18px",
-                                    borderRadius: "8px",
-                                    border: "1px solid #cbd5e1",
-                                    backgroundColor: "#ffffff",
-                                    color: "#475569",
-                                    fontWeight: 600,
-                                    fontSize: "14px",
-                                    cursor: "pointer",
-                                }}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                type="submit"
-                                disabled={saving}
-                                style={{
-                                    padding: "9px 20px",
-                                    borderRadius: "8px",
-                                    border: "none",
-                                    backgroundColor: "#2563eb",
-                                    color: "#ffffff",
-                                    fontWeight: 600,
-                                    fontSize: "14px",
-                                    cursor: saving ? "not-allowed" : "pointer",
-                                    boxShadow: "0 2px 4px rgba(37, 99, 235, 0.2)",
-                                }}
-                            >
-                                {saving ? "Guardando..." : "Guardar Cambios"}
-                            </button>
-                        </div>
+                    <div className="modal-actions-footer">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={saving}
+                            className="btn-modal-cancel"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={saving || !title.trim()}
+                            className="btn-modal-save"
+                        >
+                            {saving ? "Guardando..." : "Guardar Cambios"}
+                        </button>
                     </div>
                 </form>
             </div>

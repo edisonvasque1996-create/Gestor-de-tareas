@@ -1,71 +1,173 @@
-import { useEffect, useState, useMemo, type FC } from "react";
+import { useEffect, useState, useMemo, useRef, type FC } from "react";
 import { useAuth } from "../hooks/useAuth";
-import type { Task, TaskInput, TaskSummary, TaskUpdateInput } from "../types/task";
-import { getTasksByUser, createTask, updateTask, deleteTask, reorderTasks } from "../services/taskService";
+import type {
+    SortOption,
+    Task,
+    TaskFilterStatus,
+    TaskInput,
+    TaskSummary as TaskSummaryType,
+    TaskUpdateInput,
+} from "../types/task";
+import {
+    subscribeToUserTasks,
+    createTask,
+    updateTask,
+    deleteTask,
+    reorderTasks,
+} from "../services/taskService";
 import { sendTaskSummaryEmail } from "../services/emailService";
-import { TodoForm } from "../components/TodoForm";
+import { Sidebar } from "../components/Sidebar";
+import { BottomNavigation } from "../components/BottomNavigation";
+import { TaskHeader } from "../components/TaskHeader";
+import { TaskSummary } from "../components/TaskSummary";
+import { TaskFilters } from "../components/TaskFilters";
 import { TodoList } from "../components/TodoList";
+import { CalendarPanel } from "../components/CalendarPanel";
+import { ProfileView } from "../components/ProfileView";
+import { TaskFormModal } from "../components/TaskFormModal";
 import { EditTaskModal } from "../components/EditTaskModal";
+import { TaskDetailsModal } from "../components/TaskDetailsModal";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Toast, type ToastData } from "../components/Toast";
 
 export const TasksPage: FC = () => {
     const { user, logout, isCloudReady } = useAuth();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
+
+    // Navegación de pestañas principales (SPA)
+    const [activeTab, setActiveTab] = useState<"tasks" | "calendar" | "profile">("tasks");
+
+    // Filtros y ordenamiento
+    const [statusFilter, setStatusFilter] = useState<TaskFilterStatus>("todas");
+    const [categoryFilter, setCategoryFilter] = useState<string>("todas");
+    const [priorityFilter, setPriorityFilter] = useState<string>("todas");
+    const [searchQuery, setSearchQuery] = useState<string>("");
+    const [sortBy, setSortBy] = useState<SortOption>("dueDate");
+
+    // Panel de calendario en escritorio (colapsable a la derecha)
+    const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(true);
+
+    // Modales
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [createInitialDate, setCreateInitialDate] = useState("");
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [viewingDetailsTask, setViewingDetailsTask] = useState<Task | null>(null);
+    const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
-    // Estado para envío de correo con AWS SES
+    // Email AWS SES y Toast feedback
     const [sendingEmail, setSendingEmail] = useState(false);
-    const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+    const [toast, setToast] = useState<ToastData | null>(null);
 
     const showToast = (text: string, type: "success" | "error" | "info" = "success") => {
-        setToastMessage({ text, type });
-        setTimeout(() => setToastMessage(null), 5000);
+        const id = Math.random().toString(36).substring(2, 9);
+        setToast({ id, text, type });
+        setTimeout(() => {
+            setToast((current) => (current?.id === id ? null : current));
+        }, 4500);
     };
 
-    // Cargar tareas al montar el componente
+    // Referencia a la función de cancelación de la suscripción en tiempo real
+    const unsubscribeRef = useRef<(() => void) | null>(null);
+
+    // Suscripción en tiempo real a Firestore — se actualiza automáticamente
     useEffect(() => {
-        if (user) {
-            loadTasks();
+        // Cancelar suscripción anterior si el usuario cambia
+        if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
         }
+
+        if (!user) {
+            setTasks([]);
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+        unsubscribeRef.current = subscribeToUserTasks(
+            user.uid,
+            (updatedTasks) => {
+                setTasks(updatedTasks);
+                setLoading(false);
+            },
+            (error) => {
+                console.error("Error en suscripción Firestore:", error);
+                showToast("No se pudieron cargar las tareas en tiempo real.", "error");
+                setLoading(false);
+            }
+        );
+
+        // Limpiar suscripción al desmontar o cambiar usuario
+        return () => {
+            unsubscribeRef.current?.();
+        };
     }, [user]);
 
-    const loadTasks = async () => {
-        if (!user) return;
-        try {
-            setLoading(true);
-            const userTasks = await getTasksByUser(user.uid);
-            setTasks(userTasks);
-        } catch (error: any) {
-            console.error("Error cargando tareas:", error);
-            showToast("No se pudieron cargar las tareas desde el servidor.", "error");
-        } finally {
-            setLoading(false);
-        }
+    // loadTasks manual (para refrescos forzados si se requiere)
+    const loadTasks = () => {
+        /* No-op: la suscripción onSnapshot mantiene los datos siempre actualizados */
     };
 
-    // 1. CREATE
+    // 1. CREAR TAREA
     const handleAddTask = async (taskData: TaskInput) => {
         if (!user) return;
-        const newTask = await createTask(user.uid, taskData, tasks.length);
-        setTasks((prev) => [...prev, newTask]);
-        showToast("✓ Tarea creada exitosamente.", "success");
-    };
-
-    // 2. TOGGLE COMPLETE
-    const handleToggleComplete = async (id: string, completed: boolean) => {
-        if (!user) return;
-        setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, completed } : t)));
         try {
-            await updateTask(id, { completed }, user.uid);
-            showToast(completed ? "✓ Tarea completada." : "Tarea marcada como pendiente.", "info");
-        } catch {
-            showToast("Error al actualizar estado en la nube.", "error");
-            loadTasks();
+            const newTask = await createTask(user.uid, taskData, tasks.length);
+            setTasks((prev) => [...prev, newTask]);
+            showToast("✓ Tarea creada exitosamente.", "success");
+        } catch (err: any) {
+            showToast(err.message || "Error al crear la tarea.", "error");
         }
     };
 
-    // 3. EDIT (UPDATE)
+    // Abrir creación con fecha específica (desde el calendario)
+    const handleOpenCreateForDate = (dateStr: string) => {
+        setCreateInitialDate(dateStr);
+        setIsCreateModalOpen(true);
+    };
+
+    // 2. TOGGLE COMPLETAR / PENDIENTE
+    const handleToggleComplete = async (id: string, completed: boolean) => {
+        if (!user) return;
+        setTasks((prev) =>
+            prev.map((t) =>
+                t.id === id
+                    ? {
+                          ...t,
+                          completed,
+                          status: completed ? "completada" : "pendiente",
+                          updatedAt: Date.now(),
+                      }
+                    : t
+            )
+        );
+
+        if (viewingDetailsTask && viewingDetailsTask.id === id) {
+            setViewingDetailsTask((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          completed,
+                          status: completed ? "completada" : "pendiente",
+                      }
+                    : null
+            );
+        }
+
+        try {
+            await updateTask(
+                id,
+                { completed, status: completed ? "completada" : "pendiente" }
+            );
+            showToast(completed ? "✓ Tarea completada." : "Tarea marcada como pendiente.", "info");
+        } catch {
+            showToast("Error actualizando tarea.", "error");
+        }
+    };
+
+    // 3. EDITAR TAREA
     const handleOpenEdit = (task: Task) => {
         setEditingTask(task);
         setIsEditModalOpen(true);
@@ -73,56 +175,58 @@ export const TasksPage: FC = () => {
 
     const handleSaveEdit = async (taskId: string, updates: TaskUpdateInput) => {
         if (!user) return;
-        await updateTask(taskId, updates, user.uid);
-        setTasks((prev) =>
-            prev.map((t) => (t.id === taskId ? { ...t, ...updates, updatedAt: Date.now() } : t))
-        );
-        showToast("✓ Tarea actualizada correctamente.", "success");
-    };
-
-    // 4. DELETE
-    const handleDelete = async (id: string) => {
-        if (!user) return;
-        if (!window.confirm("¿Seguro que deseas eliminar esta tarea permanentemente?")) return;
-
-        setTasks((prev) => prev.filter((t) => t.id !== id));
         try {
-            await deleteTask(id, user.uid);
-            showToast("Tarea eliminada.", "info");
-        } catch {
-            showToast("Error al eliminar la tarea en el servidor.", "error");
-            loadTasks();
+            await updateTask(taskId, updates);
+            // El onSnapshot actualizará el estado automáticamente
+            if (viewingDetailsTask && viewingDetailsTask.id === taskId) {
+                setViewingDetailsTask((prev) =>
+                    prev ? { ...prev, ...updates, updatedAt: Date.now() } : null
+                );
+            }
+            showToast("✓ Tarea actualizada correctamente.", "success");
+        } catch (err: any) {
+            showToast(err.message || "Error al actualizar la tarea.", "error");
         }
     };
 
-    // 5. REORDER (DRAG & DROP)
+    // 4. ELIMINAR TAREA
+    const handlePromptDelete = (id: string) => {
+        setDeletingTaskId(id);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!user || !deletingTaskId) return;
+        const idToDelete = deletingTaskId;
+        setDeletingTaskId(null);
+
+        if (viewingDetailsTask && viewingDetailsTask.id === idToDelete) {
+            setViewingDetailsTask(null);
+        }
+
+        try {
+            await deleteTask(idToDelete);
+            showToast("Tarea eliminada.", "info");
+        } catch {
+            showToast("Error al eliminar la tarea.", "error");
+        }
+    };
+
+    // 5. REORDENAR (DRAG & DROP)
     const handleReorder = async (newTasks: Task[]) => {
         if (!user) return;
+        // Actualización optimista del UI antes de que Firestore confirme
         setTasks(newTasks);
         try {
-            await reorderTasks(newTasks, user.uid);
+            await reorderTasks(newTasks);
         } catch {
             console.warn("Fallo temporal sincronizando orden en segundo plano.");
         }
     };
 
-    // KPI / Resumen de métricas
-    const summary: TaskSummary = useMemo(() => {
-        const total = tasks.length;
-        const completed = tasks.filter((t) => t.completed).length;
-        const pending = total - completed;
-        const highPriority = tasks.filter((t) => t.priority === "alta" && !t.completed).length;
-        const overdue = tasks.filter(
-            (t) => !t.completed && t.dueDate && new Date(t.dueDate + "T23:59:59").getTime() < Date.now()
-        ).length;
-
-        return { total, completed, pending, highPriority, overdue };
-    }, [tasks]);
-
-    // ENVÍO DE EMAIL CON AWS SES
+    // 6. ENVIAR RESUMEN POR EMAIL (AWS SES)
     const handleSendEmailSummary = async () => {
         if (!user || !user.email) {
-            showToast("No se detectó un correo electrónico válido para enviar el resumen.", "error");
+            showToast("No se detectó un correo electrónico válido.", "error");
             return;
         }
 
@@ -134,121 +238,68 @@ export const TasksPage: FC = () => {
                 tasks,
                 summary,
             });
-
             showToast(result.message, result.isSimulated ? "info" : "success");
         } catch (err: any) {
             console.error("Error enviando email:", err);
-            showToast(err.message || "Error al invocar el servicio de correo AWS SES.", "error");
+            showToast(err.message || "Error al invocar servicio AWS SES.", "error");
         } finally {
             setSendingEmail(false);
         }
     };
 
-    const completionPercent = summary.total > 0 ? Math.round((summary.completed / summary.total) * 100) : 0;
+    // Resumen de Métricas (KPIs)
+    const summary: TaskSummaryType = useMemo(() => {
+        const total = tasks.length;
+        const completed = tasks.filter((t) => t.completed).length;
+        const pending = tasks.filter((t) => !t.completed).length;
+        const inProgress = tasks.filter((t) => t.status === "en_progreso" && !t.completed).length;
+        const highPriority = tasks.filter((t) => t.priority === "alta" && !t.completed).length;
+        const overdue = tasks.filter(
+            (t) =>
+                !t.completed &&
+                t.dueDate &&
+                new Date(t.dueDate + "T23:59:59").getTime() < Date.now()
+        ).length;
+
+        return { total, completed, pending, inProgress, highPriority, overdue };
+    }, [tasks]);
+
+    // Conteos para los botones de filtros
+    const filterCounts = useMemo(() => {
+        const todayStr = new Date().toISOString().split("T")[0];
+        return {
+            todas: tasks.length,
+            pendientes: tasks.filter((t) => !t.completed).length,
+            en_progreso: tasks.filter((t) => t.status === "en_progreso" && !t.completed).length,
+            completadas: tasks.filter((t) => t.completed).length,
+            hoy: tasks.filter((t) => t.dueDate === todayStr).length,
+            proximas: tasks.filter((t) => t.dueDate && t.dueDate > todayStr).length,
+            vencidas: tasks.filter(
+                (t) =>
+                    !t.completed &&
+                    t.dueDate &&
+                    new Date(t.dueDate + "T23:59:59").getTime() < Date.now()
+            ).length,
+        };
+    }, [tasks]);
 
     return (
-        <div className="dashboard-container">
-            {/* Toast Notification */}
-            {toastMessage && (
-                <div className={`toast-notification toast-${toastMessage.type}`} role="alert">
-                    <span>{toastMessage.text}</span>
-                    <button type="button" onClick={() => setToastMessage(null)} className="toast-close">✕</button>
-                </div>
-            )}
+        <div className="spa-app-layout">
+            {/* Toast flotante */}
+            <Toast toast={toast} onClose={() => setToast(null)} />
 
-            {/* Banner de Estado de Conexión a la Nube */}
-            {!isCloudReady && (
-                <div className="setup-banner">
-                    <span className="setup-badge">Modo Local / Demo</span>
-                    <p className="setup-text">
-                        La aplicación está funcionando en modo local offline (datos en tu navegador). Para activar <strong>Cloud Firestore y Firebase Auth</strong> en producción, añade tus credenciales en el archivo <code>.env</code>.
-                    </p>
-                </div>
-            )}
+            {/* Modal para Crear Nueva Tarea */}
+            <TaskFormModal
+                isOpen={isCreateModalOpen}
+                onClose={() => {
+                    setIsCreateModalOpen(false);
+                    setCreateInitialDate("");
+                }}
+                onAddTask={handleAddTask}
+                initialDate={createInitialDate}
+            />
 
-            {/* Header de la Aplicación */}
-            <header className="app-header">
-                <div className="header-brand">
-                    <div className="brand-logo">⚡</div>
-                    <div>
-                        <h1 className="brand-title">Gestor Estratégico de Tareas</h1>
-                        <span className="brand-org">MateCode · Productividad Inteligente</span>
-                    </div>
-                </div>
-
-                <div className="header-user-section">
-                    <div className="user-info-box">
-                        <span className="user-name">{user?.displayName || "Usuario"}</span>
-                        <span className="user-email">{user?.email}</span>
-                    </div>
-
-                    <div className="header-actions">
-                        <button
-                            type="button"
-                            onClick={handleSendEmailSummary}
-                            disabled={sendingEmail || tasks.length === 0}
-                            className="btn-email-summary"
-                            title="Enviar resumen completo a tu correo vía AWS SES"
-                        >
-                            {sendingEmail ? "Enviando vía AWS SES..." : "📧 Enviar Resumen"}
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={logout}
-                            className="btn-logout"
-                            title="Cerrar sesión actual"
-                        >
-                            Cerrar Sesión
-                        </button>
-                    </div>
-                </div>
-            </header>
-
-            {/* Métricas y Resumen Ejecutivo */}
-            <section className="stats-grid" aria-label="Métricas de productividad">
-                <div className="stat-card">
-                    <span className="stat-label">Total Tareas</span>
-                    <span className="stat-value">{summary.total}</span>
-                    <span className="stat-sub">Registradas</span>
-                </div>
-                <div className="stat-card stat-success">
-                    <span className="stat-label">Completadas</span>
-                    <span className="stat-value">{summary.completed}</span>
-                    <span className="stat-sub">{completionPercent}% del total</span>
-                </div>
-                <div className="stat-card stat-warning">
-                    <span className="stat-label">Pendientes</span>
-                    <span className="stat-value">{summary.pending}</span>
-                    <span className="stat-sub">Por ejecutar</span>
-                </div>
-                <div className="stat-card stat-danger">
-                    <span className="stat-label">Alta Prioridad</span>
-                    <span className="stat-value">{summary.highPriority}</span>
-                    <span className="stat-sub">Urgentes activas</span>
-                </div>
-            </section>
-
-            {/* Formulario de Creación */}
-            <TodoForm onAddTask={handleAddTask} />
-
-            {/* Lista de Tareas y Filtros */}
-            {loading ? (
-                <div className="loading-state">
-                    <div className="spinner"></div>
-                    <p>Sincronizando tareas en la nube...</p>
-                </div>
-            ) : (
-                <TodoList
-                    tasks={tasks}
-                    onToggleComplete={handleToggleComplete}
-                    onEdit={handleOpenEdit}
-                    onDelete={handleDelete}
-                    onReorder={handleReorder}
-                />
-            )}
-
-            {/* Modal de Edición de Tarea */}
+            {/* Modal para Editar Tarea */}
             <EditTaskModal
                 task={editingTask}
                 isOpen={isEditModalOpen}
@@ -257,6 +308,180 @@ export const TasksPage: FC = () => {
                     setEditingTask(null);
                 }}
                 onSave={handleSaveEdit}
+            />
+
+            {/* Modal para Ver Detalles de Tarea */}
+            <TaskDetailsModal
+                task={viewingDetailsTask}
+                isOpen={Boolean(viewingDetailsTask)}
+                onClose={() => setViewingDetailsTask(null)}
+                onEdit={handleOpenEdit}
+                onToggleComplete={handleToggleComplete}
+                onDelete={handlePromptDelete}
+            />
+
+            {/* Diálogo de Confirmación para Eliminar */}
+            <ConfirmDialog
+                isOpen={Boolean(deletingTaskId)}
+                title="¿Eliminar tarea?"
+                message="Esta acción no se puede deshacer. La tarea será eliminada permanentemente del gestor."
+                confirmText="Sí, eliminar"
+                cancelText="Cancelar"
+                onConfirm={handleConfirmDelete}
+                onCancel={() => setDeletingTaskId(null)}
+            />
+
+            {/* =========================================================================
+                ZONA 1: BARRA IZQUIERDA (SIDEBAR - ESCRITORIO >= 1024px)
+               ========================================================================= */}
+            <Sidebar
+                activeTab={activeTab}
+                onSelectTab={setActiveTab}
+                activeCategory={categoryFilter}
+                onSelectCategory={setCategoryFilter}
+                tasks={tasks}
+                user={user}
+                onLogout={logout}
+            />
+
+            {/* =========================================================================
+                ZONA 2: ÁREA CENTRAL (MAIN CONTENT)
+               ========================================================================= */}
+            <main className="spa-main-content">
+                {/* Banner de Modo Demo / Local (discreto y profesional) */}
+                {!isCloudReady && (
+                    <div className="demo-status-pill-banner">
+                        <span className="demo-pill-badge">Modo Demo Local</span>
+                        <span className="demo-pill-desc">
+                            Datos simulados en memoria · Sincronización instantánea activa
+                        </span>
+                    </div>
+                )}
+
+                {/* VISTA 1: MIS TAREAS */}
+                {activeTab === "tasks" && (
+                    <div className="tasks-view-wrapper">
+                        {/* 6.1. Encabezado */}
+                        <TaskHeader
+                            onToggleCalendar={() => setIsCalendarOpen((prev) => !prev)}
+                            isCalendarOpen={isCalendarOpen}
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
+                            pendingCount={summary.pending}
+                        />
+
+                        {/* 6.2. Resumen Visual de Productividad */}
+                        <TaskSummary
+                            summary={summary}
+                            activeFilter={statusFilter}
+                            onSelectFilter={(filterType) => setStatusFilter(filterType)}
+                        />
+
+                        {/* 6.3 & 9. Filtros, Búsqueda y Ordenamiento */}
+                        <TaskFilters
+                            statusFilter={statusFilter}
+                            onStatusFilterChange={setStatusFilter}
+                            categoryFilter={categoryFilter}
+                            onCategoryFilterChange={setCategoryFilter}
+                            priorityFilter={priorityFilter}
+                            onPriorityFilterChange={setPriorityFilter}
+                            sortBy={sortBy}
+                            onSortByChange={setSortBy}
+                            searchQuery={searchQuery}
+                            onSearchQueryChange={setSearchQuery}
+                            counts={filterCounts}
+                        />
+
+                        {/* 6.4. Listado de Tareas con Drag & Drop */}
+                        {loading ? (
+                            <div className="loading-state-box">
+                                <div className="spinner-indicator" />
+                                <p>Cargando tareas estratégicas...</p>
+                            </div>
+                        ) : (
+                            <TodoList
+                                tasks={tasks}
+                                onToggleComplete={handleToggleComplete}
+                                onEdit={handleOpenEdit}
+                                onDelete={handlePromptDelete}
+                                onReorder={handleReorder}
+                                onViewDetails={(task) => setViewingDetailsTask(task)}
+                                controlledStatus={statusFilter}
+                                controlledCategory={categoryFilter}
+                                controlledPriority={priorityFilter}
+                                controlledSearch={searchQuery}
+                                controlledSort={sortBy}
+                                hideInternalControls={true}
+                            />
+                        )}
+
+                        {/* FAB Flotante — Crear Nueva Tarea */}
+                        <button
+                            type="button"
+                            onClick={() => setIsCreateModalOpen(true)}
+                            className="tasks-fab"
+                            title="Crear nueva tarea"
+                            aria-label="Crear nueva tarea"
+                        >
+                            <span className="tasks-fab-icon" aria-hidden="true">+</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* VISTA 2: CALENDARIO EN PANTALLA COMPLETA (Móvil / Tablet o selección directa) */}
+                {activeTab === "calendar" && (
+                    <div className="calendar-fullview-wrapper">
+                        <CalendarPanel
+                            tasks={tasks}
+                            isOpen={true}
+                            onClose={() => setActiveTab("tasks")}
+                            onToggleComplete={handleToggleComplete}
+                            onEditTask={handleOpenEdit}
+                            onCreateTaskForDate={handleOpenCreateForDate}
+                            isMobileView={true}
+                        />
+                    </div>
+                )}
+
+                {/* VISTA 3: PERFIL DE USUARIO / CONFIGURACIÓN (Tercera vista) */}
+                {activeTab === "profile" && (
+                    <div className="profile-view-wrapper">
+                        <ProfileView
+                            user={user}
+                            tasks={tasks}
+                            summary={summary}
+                            onLogout={logout}
+                            onBackToTasks={() => setActiveTab("tasks")}
+                            onSendEmailSummary={handleSendEmailSummary}
+                            sendingEmail={sendingEmail}
+                        />
+                    </div>
+                )}
+            </main>
+
+            {/* =========================================================================
+                ZONA 3: PANEL DERECHO (CALENDARIO MENSUAL DESPLEGABLE - ESCRITORIO)
+               ========================================================================= */}
+            {activeTab === "tasks" && (
+                <CalendarPanel
+                    tasks={tasks}
+                    isOpen={isCalendarOpen}
+                    onClose={() => setIsCalendarOpen(false)}
+                    onToggleComplete={handleToggleComplete}
+                    onEditTask={handleOpenEdit}
+                    onCreateTaskForDate={handleOpenCreateForDate}
+                    isMobileView={false}
+                />
+            )}
+
+            {/* =========================================================================
+                NAVEGACIÓN INFERIOR (MOBILE FIRST - < 768px)
+               ========================================================================= */}
+            <BottomNavigation
+                activeTab={activeTab}
+                onSelectTab={setActiveTab}
+                onOpenNewTask={() => setIsCreateModalOpen(true)}
+                pendingCount={summary.pending}
             />
         </div>
     );

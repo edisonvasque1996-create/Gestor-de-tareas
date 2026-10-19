@@ -5,6 +5,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { TasksPage } from "./pages/TasksPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import "./index.css";
 
 export function App() {
   return (
@@ -18,6 +19,38 @@ export function App() {
             {/* Ruta privada protegida con Gestor de Tareas */}
             <Route
               path="/"
+              element={
+                <ProtectedRoute>
+                  <TasksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/calendar"
+              element={
+                <ProtectedRoute>
+                  <TasksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/calendario"
+              element={
+                <ProtectedRoute>
+                  <TasksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <TasksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/perfil"
               element={
                 <ProtectedRoute>
                   <TasksPage />

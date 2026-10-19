@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Colección: tasks ───────────────────────────────────────────────────
+    // Cada documento de tarea tiene un campo "userId" con el UID del dueño.
+    // Solo el usuario autenticado cuyo UID coincide con ese campo puede
+    // leer, crear, actualizar o eliminar sus propias tareas.
+    match /tasks/{taskId} {
+
+      // Función auxiliar: verifica que el usuario está autenticado y es el dueño
+      function isOwner() {
+        return request.auth != null
+            && request.auth.uid == resource.data.userId;
+      }
+
+      // Función auxiliar para creaciones: el campo userId debe coincidir con el UID del token
+      function isCreatingAsOwner() {
+        return request.auth != null
+            && request.auth.uid == request.resource.data.userId;
+      }
+
+      // Función auxiliar: valida los campos obligatorios en creación
+      function hasRequiredFields() {
+        return request.resource.data.keys().hasAll([
+          'userId', 'title', 'completed', 'priority', 'order', 'createdAt'
+        ]);
+      }
+
+      // LECTURA: solo el propietario puede leer
+      allow read: if isOwner();
+
+      // CREACIÓN: el usuario debe estar autenticado, ser el dueño indicado
+      //           y proveer los campos obligatorios
+      allow create: if isCreatingAsOwner() && hasRequiredFields();
+
+      // ACTUALIZACIÓN: solo el propietario puede actualizar;
+      //               no se permite cambiar el campo userId
+      allow update: if isOwner()
+                    && request.resource.data.userId == resource.data.userId;
+
+      // ELIMINACIÓN: solo el propietario puede borrar
+      allow delete: if isOwner();
+    }
+
+    // ── Denegar acceso a cualquier otra colección ──────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

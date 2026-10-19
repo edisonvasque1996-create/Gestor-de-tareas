@@ -59,8 +59,14 @@ export const AuthPage: FC = () => {
                 </div>
 
                 {!isCloudReady && (
-                    <div className="auth-demo-notice">
-                        💡 <strong>Modo Demo / Local Activo:</strong> Puedes ingresar cualquier correo y contraseña para explorar la aplicación de inmediato sin necesidad de crear cuenta previa en Firebase.
+                    <div className="auth-demo-notice" role="alert">
+                        <strong>⚠️ Configuración de Firebase requerida</strong>
+                        <p style={{ margin: "6px 0 0", fontSize: "13px" }}>
+                            Las variables de entorno de Firebase no están configuradas.
+                            Copia <code>.env.example</code> como <code>.env</code> y añade
+                            tus credenciales del proyecto Firebase para activar la
+                            autenticación y la persistencia en la nube.
+                        </p>
                     </div>
                 )}
 
@@ -164,6 +170,7 @@ export const AuthPage: FC = () => {
                     </svg>
                     <span>Google</span>
                 </button>
+
             </div>
         </div>
     );

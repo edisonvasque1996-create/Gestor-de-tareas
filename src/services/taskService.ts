@@ -1,69 +1,99 @@
 import {
     collection,
     addDoc,
-    getDocs,
     updateDoc,
     deleteDoc,
     doc,
     query,
-    where
+    where,
+    orderBy,
+    onSnapshot,
+    writeBatch,
+    type Unsubscribe,
 } from "firebase/firestore";
-import { db, isFirebaseConfigured } from "./firebase";
+import { db } from "./firebase";
 import type { Task, TaskInput, TaskUpdateInput } from "../types/task";
 
 const COLLECTION_NAME = "tasks";
-const LOCAL_STORAGE_PREFIX = "gestor_tasks_";
 
-// Helper para almacenamiento local en modo offline / contingencia
-const getLocalTasks = (userId: string): Task[] => {
-    try {
-        const raw = localStorage.getItem(`${LOCAL_STORAGE_PREFIX}${userId}`);
-        return raw ? JSON.parse(raw) : [];
-    } catch {
-        return [];
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. SUSCRIPCIÓN EN TIEMPO REAL
+// Retorna una función de cancelación (Unsubscribe).
+// El callback recibe el array actualizado de tareas del usuario cada vez que
+// Firestore detecte un cambio en la colección.
+// ─────────────────────────────────────────────────────────────────────────────
+export const subscribeToUserTasks = (
+    userId: string,
+    onUpdate: (tasks: Task[]) => void,
+    onError?: (error: Error) => void
+): Unsubscribe => {
+    if (!userId) {
+        onUpdate([]);
+        return () => {};
     }
+
+    const q = query(
+        collection(db, COLLECTION_NAME),
+        where("userId", "==", userId),
+        orderBy("order", "asc")
+    );
+
+    return onSnapshot(
+        q,
+        (snapshot) => {
+            const tasks: Task[] = snapshot.docs.map((docSnap) => ({
+                id: docSnap.id,
+                ...(docSnap.data() as Omit<Task, "id">),
+            }));
+            onUpdate(tasks);
+        },
+        (error) => {
+            console.error("[taskService] Error en suscripción Firestore:", error);
+            onError?.(error);
+        }
+    );
 };
 
-const saveLocalTasks = (userId: string, tasks: Task[]): void => {
-    try {
-        localStorage.setItem(`${LOCAL_STORAGE_PREFIX}${userId}`, JSON.stringify(tasks));
-    } catch (e) {
-        console.error("Error guardando en almacenamiento local:", e);
-    }
-};
-
-// 1. READ: Obtener todas las tareas de un usuario específico
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. LECTURA PUNTUAL (para compatibilidad con tests y usos sin suscripción)
+// Usa un flag para evitar el problema de zona muerta temporal cuando
+// onSnapshot llama al callback síncronamente (como hacen los mocks en tests).
+// ─────────────────────────────────────────────────────────────────────────────
 export const getTasksByUser = async (userId: string): Promise<Task[]> => {
     if (!userId) return [];
+    return new Promise((resolve, reject) => {
+        let unsubFn: (() => void) | null = null;
+        let resolved = false;
 
-    if (isFirebaseConfigured && db) {
-        try {
-            const q = query(
-                collection(db, COLLECTION_NAME),
-                where("userId", "==", userId)
-            );
-            const querySnapshot = await getDocs(q);
-            const tasks: Task[] = [];
-
-            querySnapshot.forEach((docSnap) => {
-                tasks.push({ id: docSnap.id, ...docSnap.data() } as Task);
-            });
-
-            // Ordenamiento por campo order y fecha de creación
-            return tasks.sort((a, b) => a.order - b.order || b.createdAt - a.createdAt);
-        } catch (error) {
-            console.warn("[taskService] Fallo al consultar Firestore, usando respaldo local:", error);
-            const local = getLocalTasks(userId);
-            return local.sort((a, b) => a.order - b.order || b.createdAt - a.createdAt);
-        }
-    } else {
-        // Modo local
-        const local = getLocalTasks(userId);
-        return local.sort((a, b) => a.order - b.order || b.createdAt - a.createdAt);
-    }
+        unsubFn = subscribeToUserTasks(
+            userId,
+            (tasks) => {
+                if (!resolved) {
+                    resolved = true;
+                    // Si onSnapshot es síncrono (mock en tests), unsubFn puede
+                    // ser null aún; en ese caso lo llamamos en el microtask siguiente.
+                    if (unsubFn) {
+                        unsubFn();
+                    } else {
+                        // Diferir la cancelación para cuando la asignación termine
+                        Promise.resolve().then(() => unsubFn?.());
+                    }
+                    resolve(tasks);
+                }
+            },
+            (error) => {
+                if (!resolved) {
+                    resolved = true;
+                    reject(error);
+                }
+            }
+        );
+    });
 };
 
-// 2. CREATE: Crear una nueva tarea asignada al usuario
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. CREAR TAREA
+// ─────────────────────────────────────────────────────────────────────────────
 export const createTask = async (
     userId: string,
     taskData: TaskInput,
@@ -75,95 +105,71 @@ export const createTask = async (
     const now = Date.now();
     const newTaskPayload = {
         userId,
-        title: taskData.title.trim(),
-        description: taskData.description.trim(),
-        completed: false,
-        priority: taskData.priority || "media",
-        dueDate: taskData.dueDate || "",
-        order: currentTotalCount,
-        createdAt: now,
-        updatedAt: now,
+        title:       taskData.title.trim(),
+        description: (taskData.description || "").trim(),
+        completed:   taskData.status === "completada",
+        priority:    taskData.priority  || "media",
+        category:    taskData.category  || "trabajo",
+        status:      taskData.status    || "pendiente",
+        dueDate:     taskData.dueDate   || "",
+        dueTime:     taskData.dueTime   || "",
+        order:       currentTotalCount,
+        createdAt:   now,
+        updatedAt:   now,
     };
 
-    if (isFirebaseConfigured && db) {
-        try {
-            const docRef = await addDoc(collection(db, COLLECTION_NAME), newTaskPayload);
-            return {
-                id: docRef.id,
-                ...newTaskPayload,
-            };
-        } catch (error) {
-            console.error("[taskService] Error creando tarea en Firestore:", error);
-            throw error;
-        }
-    } else {
-        const localTask: Task = {
-            id: "task-" + Math.random().toString(36).substring(2, 9) + "-" + Date.now(),
-            ...newTaskPayload,
-        };
-        const current = getLocalTasks(userId);
-        saveLocalTasks(userId, [...current, localTask]);
-        return localTask;
-    }
+    const docRef = await addDoc(collection(db, COLLECTION_NAME), newTaskPayload);
+    return { id: docRef.id, ...newTaskPayload };
 };
 
-// 3. UPDATE: Actualizar una tarea existente (Edición completa de título, descripción, prioridad, fecha, estado)
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. ACTUALIZAR TAREA
+// Sincroniza automáticamente los campos `completed` y `status` si solo se
+// provee uno de los dos, manteniendo coherencia en el documento Firestore.
+// ─────────────────────────────────────────────────────────────────────────────
 export const updateTask = async (
     taskId: string,
-    updates: TaskUpdateInput,
-    userId?: string
+    updates: TaskUpdateInput
 ): Promise<void> => {
     if (!taskId) throw new Error("ID de tarea requerido para actualizar.");
 
-    const sanitizedUpdates = {
+    // Sincronización completed ↔ status
+    let { completed, status } = updates;
+    if (completed !== undefined && status === undefined) {
+        status = completed ? "completada" : "pendiente";
+    } else if (status !== undefined && completed === undefined) {
+        completed = status === "completada";
+    }
+
+    const sanitized: Record<string, unknown> = {
         ...updates,
+        ...(completed !== undefined ? { completed } : {}),
+        ...(status    !== undefined ? { status }    : {}),
         updatedAt: Date.now(),
     };
 
-    if (isFirebaseConfigured && db) {
-        try {
-            const taskRef = doc(db, COLLECTION_NAME, taskId);
-            await updateDoc(taskRef, sanitizedUpdates);
-        } catch (error) {
-            console.error("[taskService] Error actualizando tarea en Firestore:", error);
-            throw error;
-        }
-    }
-
-    // Mantener sincronizado el almacenamiento local
-    if (userId) {
-        const current = getLocalTasks(userId);
-        const updated = current.map((t) => (t.id === taskId ? { ...t, ...sanitizedUpdates } : t));
-        saveLocalTasks(userId, updated);
-    }
+    const taskRef = doc(db, COLLECTION_NAME, taskId);
+    await updateDoc(taskRef, sanitized);
 };
 
-// 4. DELETE: Eliminar una tarea por ID
-export const deleteTask = async (taskId: string, userId?: string): Promise<void> => {
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. ELIMINAR TAREA
+// ─────────────────────────────────────────────────────────────────────────────
+export const deleteTask = async (taskId: string): Promise<void> => {
     if (!taskId) throw new Error("ID de tarea requerido para eliminar.");
-
-    if (isFirebaseConfigured && db) {
-        try {
-            const taskRef = doc(db, COLLECTION_NAME, taskId);
-            await deleteDoc(taskRef);
-        } catch (error) {
-            console.error("[taskService] Error eliminando tarea en Firestore:", error);
-            throw error;
-        }
-    }
-
-    if (userId) {
-        const current = getLocalTasks(userId);
-        const filtered = current.filter((t) => t.id !== taskId);
-        saveLocalTasks(userId, filtered);
-    }
+    const taskRef = doc(db, COLLECTION_NAME, taskId);
+    await deleteDoc(taskRef);
 };
 
-// 5. REORDER: Actualizar el orden de las tareas tras Drag & Drop
-export const reorderTasks = async (tasks: Task[], userId?: string): Promise<void> => {
-    // Actualizar concurrentemente o en batch
-    const updates = tasks.map((task, index) =>
-        updateTask(task.id, { order: index }, userId)
-    );
-    await Promise.all(updates);
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. REORDENAR (DRAG & DROP) — batch write para eficiencia
+// Actualiza el campo `order` de todas las tareas en una sola operación atómica.
+// ─────────────────────────────────────────────────────────────────────────────
+export const reorderTasks = async (tasks: Task[]): Promise<void> => {
+    const batch = writeBatch(db);
+    tasks.forEach((task, index) => {
+        const taskRef = doc(db, COLLECTION_NAME, task.id);
+        batch.update(taskRef, { order: index, updatedAt: Date.now() });
+    });
+    await batch.commit();
 };

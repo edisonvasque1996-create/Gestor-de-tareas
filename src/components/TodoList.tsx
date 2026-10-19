@@ -6,14 +6,14 @@ import {
     PointerSensor,
     useSensor,
     useSensors,
-    type DragEndEvent
+    type DragEndEvent,
 } from "@dnd-kit/core";
 import {
     SortableContext,
     sortableKeyboardCoordinates,
-    verticalListSortingStrategy
+    verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { Task, TaskStatus } from "../types/task";
+import type { PriorityLevel, SortOption, Task, TaskFilterStatus } from "../types/task";
 import { TodoItem } from "./TodoItem";
 
 interface TodoListProps {
@@ -22,6 +22,14 @@ interface TodoListProps {
     onEdit: (task: Task) => void;
     onDelete: (id: string) => void;
     onReorder: (newTasks: Task[]) => void;
+    onViewDetails?: (task: Task) => void;
+    // Props de control opcionales desde el componente contenedor
+    controlledStatus?: TaskFilterStatus;
+    controlledCategory?: string;
+    controlledPriority?: string;
+    controlledSearch?: string;
+    controlledSort?: SortOption;
+    hideInternalControls?: boolean;
 }
 
 export const TodoList: FC<TodoListProps> = ({
@@ -30,10 +38,26 @@ export const TodoList: FC<TodoListProps> = ({
     onEdit,
     onDelete,
     onReorder,
+    onViewDetails,
+    controlledStatus,
+    controlledCategory,
+    controlledPriority,
+    controlledSearch,
+    controlledSort,
+    hideInternalControls = false,
 }) => {
-    const [statusFilter, setStatusFilter] = useState<TaskStatus>("todas");
-    const [priorityFilter, setPriorityFilter] = useState<string>("todas");
-    const [searchQuery, setSearchQuery] = useState("");
+    // Estado interno cuando se usa sin props controladas (ej. en tests unitarios)
+    const [internalStatus, setInternalStatus] = useState<TaskFilterStatus>("todas");
+    const [internalPriority, setInternalPriority] = useState<string>("todas");
+    const [internalSearch, setInternalSearch] = useState<string>("");
+    const internalCategory = "todas";
+    const internalSort: SortOption = "dueDate";
+
+    const activeStatus = controlledStatus ?? internalStatus;
+    const activeCategory = controlledCategory ?? internalCategory;
+    const activePriority = controlledPriority ?? internalPriority;
+    const activeSearch = controlledSearch ?? internalSearch;
+    const activeSort = controlledSort ?? internalSort;
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -46,19 +70,38 @@ export const TodoList: FC<TodoListProps> = ({
         })
     );
 
-    // Filtrado memoizado de tareas
-    const filteredTasks = useMemo(() => {
-        return tasks.filter((task) => {
-            // Filtro por estado
-            if (statusFilter === "pendientes" && task.completed) return false;
-            if (statusFilter === "completadas" && !task.completed) return false;
+    // Filtrado y ordenamiento memoizado de tareas
+    const processedTasks = useMemo(() => {
+        const todayStr = new Date().toISOString().split("T")[0];
+
+        // 1. Filtrado
+        const filtered = tasks.filter((task) => {
+            // Filtro por estado / temporalidad
+            if (activeStatus === "pendientes" && task.completed) return false;
+            if (activeStatus === "completadas" && !task.completed) return false;
+            if (activeStatus === "en_progreso" && task.status !== "en_progreso") return false;
+
+            if (activeStatus === "hoy") {
+                if (!task.dueDate || task.dueDate !== todayStr) return false;
+            } else if (activeStatus === "proximas") {
+                if (!task.dueDate || task.dueDate <= todayStr) return false;
+            } else if (activeStatus === "vencidas") {
+                const isOverdue =
+                    !task.completed &&
+                    task.dueDate &&
+                    new Date(task.dueDate + "T23:59:59").getTime() < Date.now();
+                if (!isOverdue) return false;
+            }
+
+            // Filtro por categoría
+            if (activeCategory !== "todas" && task.category !== activeCategory) return false;
 
             // Filtro por prioridad
-            if (priorityFilter !== "todas" && task.priority !== priorityFilter) return false;
+            if (activePriority !== "todas" && task.priority !== activePriority) return false;
 
             // Filtro por texto de búsqueda
-            if (searchQuery.trim()) {
-                const query = searchQuery.toLowerCase();
+            if (activeSearch.trim()) {
+                const query = activeSearch.toLowerCase().trim();
                 const matchesTitle = task.title.toLowerCase().includes(query);
                 const matchesDesc = (task.description || "").toLowerCase().includes(query);
                 if (!matchesTitle && !matchesDesc) return false;
@@ -66,7 +109,35 @@ export const TodoList: FC<TodoListProps> = ({
 
             return true;
         });
-    }, [tasks, statusFilter, priorityFilter, searchQuery]);
+
+        // 2. Ordenamiento
+        return filtered.sort((a, b) => {
+            if (activeSort === "dueDate") {
+                // Tareas con fecha van primero, ordenadas ascendentemente
+                if (!a.dueDate && !b.dueDate) return a.order - b.order;
+                if (!a.dueDate) return 1;
+                if (!b.dueDate) return -1;
+                return a.dueDate.localeCompare(b.dueDate);
+            }
+            if (activeSort === "priority") {
+                const priorityWeight: Record<PriorityLevel, number> = {
+                    alta: 3,
+                    media: 2,
+                    baja: 1,
+                };
+                const weightDiff = (priorityWeight[b.priority] || 0) - (priorityWeight[a.priority] || 0);
+                if (weightDiff !== 0) return weightDiff;
+                return a.order - b.order;
+            }
+            if (activeSort === "createdAt") {
+                return (b.createdAt || 0) - (a.createdAt || 0);
+            }
+            if (activeSort === "title") {
+                return a.title.localeCompare(b.title);
+            }
+            return a.order - b.order;
+        });
+    }, [tasks, activeStatus, activeCategory, activePriority, activeSearch, activeSort]);
 
     const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
@@ -87,61 +158,69 @@ export const TodoList: FC<TodoListProps> = ({
 
     return (
         <section className="todo-list-section" aria-label="Listado de tareas">
-            {/* Barra de Búsqueda y Filtros */}
-            <div className="filter-controls-bar">
-                {/* Input de Búsqueda */}
-                <div className="search-box">
-                    <span className="search-icon">🔍</span>
-                    <input
-                        type="text"
-                        placeholder="Buscar tareas por título o detalle..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="search-input"
-                    />
-                    {searchQuery && (
-                        <button
-                            type="button"
-                            onClick={() => setSearchQuery("")}
-                            className="clear-search-btn"
-                        >
-                            ✕
-                        </button>
-                    )}
-                </div>
-
-                <div className="filters-group">
-                    {/* Botones de Estado */}
-                    <div className="segmented-control" role="group" aria-label="Filtrar por estado">
-                        {(["todas", "pendientes", "completadas"] as TaskStatus[]).map((st) => (
+            {/* Controles internos de filtro (visibles si no se ocultan desde el padre) */}
+            {!hideInternalControls && (
+                <div className="filter-controls-bar">
+                    {/* Input de Búsqueda */}
+                    <div className="search-box">
+                        <span className="search-icon">🔍</span>
+                        <input
+                            type="text"
+                            placeholder="Buscar tareas por título o detalle..."
+                            value={internalSearch}
+                            onChange={(e) => setInternalSearch(e.target.value)}
+                            className="search-input"
+                            aria-label="Buscar tareas"
+                        />
+                        {internalSearch && (
                             <button
-                                key={st}
                                 type="button"
-                                onClick={() => setStatusFilter(st)}
-                                className={`segment-btn ${statusFilter === st ? "active" : ""}`}
+                                onClick={() => setInternalSearch("")}
+                                className="clear-search-btn"
+                                aria-label="Limpiar búsqueda"
                             >
-                                {st === "todas" ? "Todas" : st === "pendientes" ? "Pendientes" : "Completadas"}
+                                ✕
                             </button>
-                        ))}
+                        )}
                     </div>
 
-                    {/* Selector de Prioridad */}
-                    <select
-                        value={priorityFilter}
-                        onChange={(e) => setPriorityFilter(e.target.value)}
-                        className="priority-filter-select"
-                        aria-label="Filtrar por prioridad"
-                    >
-                        <option value="todas">Todas las prioridades</option>
-                        <option value="alta">🔴 Alta prioridad</option>
-                        <option value="media">🟡 Media prioridad</option>
-                        <option value="baja">🟢 Baja prioridad</option>
-                    </select>
-                </div>
-            </div>
+                    <div className="filters-group">
+                        {/* Botones de Estado */}
+                        <div className="segmented-control" role="group" aria-label="Filtrar por estado">
+                            {(["todas", "pendientes", "completadas"] as const).map((st) => (
+                                <button
+                                    key={st}
+                                    type="button"
+                                    onClick={() => setInternalStatus(st)}
+                                    className={`segment-btn ${internalStatus === st ? "active" : ""}`}
+                                >
+                                    {st === "todas"
+                                        ? "Todas"
+                                        : st === "pendientes"
+                                        ? "Pendientes"
+                                        : "Completadas"}
+                                </button>
+                            ))}
+                        </div>
 
-            {/* Listado con Drag & Drop */}
-            {filteredTasks.length === 0 ? (
+                        {/* Selector de Prioridad */}
+                        <select
+                            value={internalPriority}
+                            onChange={(e) => setInternalPriority(e.target.value)}
+                            className="priority-filter-select"
+                            aria-label="Filtrar por prioridad"
+                        >
+                            <option value="todas">Todas las prioridades</option>
+                            <option value="alta">🔴 Alta prioridad</option>
+                            <option value="media">🟡 Media prioridad</option>
+                            <option value="baja">🟢 Baja prioridad</option>
+                        </select>
+                    </div>
+                </div>
+            )}
+
+            {/* Listado con Drag & Drop o Estado Vacío */}
+            {processedTasks.length === 0 ? (
                 <div className="empty-state">
                     <div className="empty-state-icon">📋</div>
                     <h4 className="empty-state-title">No hay tareas que coincidan</h4>
@@ -153,15 +232,19 @@ export const TodoList: FC<TodoListProps> = ({
                 </div>
             ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                    <SortableContext items={filteredTasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                    <SortableContext
+                        items={processedTasks.map((t) => t.id)}
+                        strategy={verticalListSortingStrategy}
+                    >
                         <div className="tasks-grid">
-                            {filteredTasks.map((task) => (
+                            {processedTasks.map((task) => (
                                 <TodoItem
                                     key={task.id}
                                     task={task}
                                     onToggleComplete={onToggleComplete}
                                     onEdit={onEdit}
                                     onDelete={onDelete}
+                                    onViewDetails={onViewDetails}
                                 />
                             ))}
                         </div>
