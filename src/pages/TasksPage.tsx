@@ -105,10 +105,6 @@ export const TasksPage: FC = () => {
         };
     }, [user]);
 
-    // loadTasks manual (para refrescos forzados si se requiere)
-    const loadTasks = () => {
-        /* No-op: la suscripción onSnapshot mantiene los datos siempre actualizados */
-    };
 
     // 1. CREAR TAREA
     const handleAddTask = async (taskData: TaskInput) => {
