@@ -57,6 +57,8 @@ export const getFriendlyAuthError = (errorCodeOrMessage: string): string => {
         return "Correo o contraseña incorrectos. Por favor, verifica tus datos.";
     if (errorCodeOrMessage.includes("auth/popup-closed-by-user"))
         return "Se cerró la ventana emergente antes de completar el inicio de sesión con Google.";
+    if (errorCodeOrMessage.includes("auth/popup-blocked"))
+        return "El navegador bloqueó la ventana emergente. Por favor, habilita las ventanas emergentes (popups) para este sitio.";
     if (errorCodeOrMessage.includes("auth/network-request-failed"))
         return "Fallo de conexión a la red. Por favor, verifica tu conexión a internet.";
     if (errorCodeOrMessage.includes("auth/too-many-requests"))
