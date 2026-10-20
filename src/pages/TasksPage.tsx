@@ -60,12 +60,12 @@ export const TasksPage: FC = () => {
     const [sendingEmail, setSendingEmail] = useState(false);
     const [toast, setToast] = useState<ToastData | null>(null);
 
-    const showToast = (text: string, type: "success" | "error" | "info" = "success") => {
+    const showToast = (text: string, type: "success" | "error" | "info" = "success", duration = 4500) => {
         const id = Math.random().toString(36).substring(2, 9);
         setToast({ id, text, type });
         setTimeout(() => {
             setToast((current) => (current?.id === id ? null : current));
-        }, 4500);
+        }, duration);
     };
 
     // Referencia a la función de cancelación de la suscripción en tiempo real
@@ -239,7 +239,11 @@ export const TasksPage: FC = () => {
             showToast(result.message, result.isSimulated ? "info" : "success");
         } catch (err: any) {
             console.error("Error enviando email:", err);
-            showToast(err.message || "Error al invocar servicio AWS SES.", "error");
+            if (err.code === "EMAIL_NOT_VERIFIED") {
+                showToast(err.message, "info", 10000);
+            } else {
+                showToast(err.message || "Error al invocar servicio AWS SES.", "error");
+            }
         } finally {
             setSendingEmail(false);
         }

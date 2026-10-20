@@ -1,4 +1,4 @@
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { SESClient, SendEmailCommand, VerifyEmailIdentityCommand } from "@aws-sdk/client-ses";
 
 // Interfaces para tipado estricto
 interface TaskItem {
@@ -202,9 +202,11 @@ export default async function handler(req: any, res: any) {
         return res.status(405).json({ error: "Método no permitido. Solo se acepta POST." });
     }
 
+    let toEmail = "";
     try {
         const body: RequestBody = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-        const { toEmail, userName, tasks = [], summary } = body;
+        const { userName, tasks = [], summary } = body;
+        toEmail = body.toEmail;
 
         if (!toEmail) {
             return res.status(400).json({ error: "El campo 'toEmail' es requerido." });
@@ -280,6 +282,40 @@ export default async function handler(req: any, res: any) {
         });
     } catch (error: any) {
         console.error("[AWS SES Error]:", error);
+
+        const errorMessage = error?.message || "";
+        const errorCode = error?.name || "";
+        const isSandboxUnverified =
+            errorCode === "MessageRejected" ||
+            errorMessage.includes("Email address is not verified") ||
+            errorMessage.includes("not verified");
+
+        if (isSandboxUnverified) {
+            try {
+                const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+                const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+                const region = process.env.AWS_REGION || "us-east-1";
+
+                if (accessKeyId && secretAccessKey) {
+                    const sesClient = new SESClient({
+                        region,
+                        credentials: { accessKeyId, secretAccessKey },
+                    });
+                    const verifyCommand = new VerifyEmailIdentityCommand({ EmailAddress: toEmail });
+                    await sesClient.send(verifyCommand);
+                    console.log(`[AWS SES] Se solicitó correo de verificación para: ${toEmail}`);
+                }
+            } catch (verifyErr) {
+                console.error("[AWS SES Error al solicitar verificación]:", verifyErr);
+            }
+
+            return res.status(403).json({
+                success: false,
+                code: "EMAIL_NOT_VERIFIED",
+                error: "La dirección de correo requiere verificación previa en AWS SES.",
+            });
+        }
+
         return res.status(500).json({
             error: error.message || "Error al enviar el correo con AWS SES.",
         });

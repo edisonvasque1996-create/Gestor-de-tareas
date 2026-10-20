@@ -12,6 +12,7 @@ export interface SendEmailResponse {
     message: string;
     messageId?: string;
     isSimulated?: boolean;
+    code?: string;
 }
 
 export const sendTaskSummaryEmail = async (
@@ -43,6 +44,17 @@ export const sendTaskSummaryEmail = async (
         // Si responde error estructurado desde la función
         if (response.status >= 400 && response.status !== 404) {
             const errData = await response.json().catch(() => ({}));
+
+            if (errData.code === "EMAIL_NOT_VERIFIED" || response.status === 403) {
+                const unverifiedError: any = new Error(
+                    "No se pudo enviar el correo en este momento porque tu dirección requiere verificación previa. " +
+                    "Hemos enviado un enlace de confirmación de Amazon Web Services a tu correo electrónico. " +
+                    "Por favor, revisa tu bandeja de entrada (y carpeta de spam), abre el enlace para aceptarlo y podrás enviar y recibir correos futuros en la plataforma."
+                );
+                unverifiedError.code = "EMAIL_NOT_VERIFIED";
+                throw unverifiedError;
+            }
+
             throw new Error(errData.error || `Error del servidor de correo (código ${response.status})`);
         }
 
